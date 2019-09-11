@@ -8,7 +8,7 @@ with open('requirements.txt') as reqs:
 
 setuptools.setup(
     name='ba_data_paths',
-    version='0.5',
+    version='0.6',
     author='Joel McCune',
     author_email='jmccune@esri.com',
     description='ArcGIS Pro Business Analyst data path utilities.',

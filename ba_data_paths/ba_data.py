@@ -5,6 +5,7 @@ import re
 import sys
 import xml.etree.ElementTree as ET
 
+import numpy as np
 import pandas as pd
 from arcgis.features import GeoAccessor
 import arcpy
@@ -252,6 +253,14 @@ class BA_Data:
         return self._create_demographic_layer('ZIPCodes_zp', 'postal_codes')
 
     @property
+    def layer_block_points(self) -> arcpy._mp.Layer:
+        """
+        Esri Business Analyst block points layer - useful for calculating weighted centroids.
+        :return: Feature Layer
+        """
+        return self._create_demographic_layer()
+
+    @property
     def layer_blocks(self) -> arcpy._mp.Layer:
         """
         US Census Blocks layer
@@ -277,6 +286,83 @@ class BA_Data:
             arcpy.management.AlterField(blocks_fc, field='GEOID', new_field_name='ID', new_field_alias='ID')
 
         return self._create_demographic_layer(blocks_fc, 'blocks')
+
+    @property
+    def layer_businesses(self):
+        """Business layer"""
+        fc_businesses = os.path.join(self.usa_data_path, r'Data\Business Data\BA_BUS_2018.gdb\us_businesses')
+        return arcpy.management.MakeFeatureLayer(fc_businesses)[0]
+
+    def get_business_layer_by_code(self, naics_codes:[int, str, list]=None,
+                                   sic_codes:[int, str, list]=None) -> arcpy._mp.Layer:
+        """
+        Get business layer by NAICS and SIC code.
+        :param naics_code:
+        :param sic_code:
+        :return: Layer with definition query applied filtering to just the NAICS and SIC codes provided.
+        """
+
+        def _get_where_clause(field_name:str, codes:[int, str, list]) -> [str, list]:
+            if codes is None:
+                return None
+            elif isinstance(codes, list) or isinstance(codes, np.array):
+                codes = [f"{field_name} = '{cd}'" for cd in codes]
+                return ' OR '.join(codes)
+            else:
+                if not isinstance(codes, str):
+                    return str(codes)
+                else:
+                    return codes
+
+        if naics_codes is None and sic_codes is None:
+            raise Exception('Either NAICS or SIC codes must be provided.')
+
+        if naics_codes and sic_codes is None:
+            sql = _get_where_clause('NAICS', naics_codes)
+
+        if naics_codes is None and sic_codes:
+            sql = _get_where_clause('SIC', sic_codes)
+
+        if naics_codes and sic_codes:
+            sql = f'{_get_where_clause("NAICS", naics_codes)} OR {_get_where_clause("SIC", sic_codes)}'
+
+        lyr_bus = self.layer_businesses
+        lyr_bus.definitionQuery = sql
+
+        return lyr_bus
+
+    def get_business_layer_by_name(self, business_name:str) -> arcpy._mp.Layer:
+        """
+        Get businesses layer by name.
+        :param business_name: String, partial or complete, of the business name.
+        :return: Layer of Businesses
+        """
+        lyr_bus = self.layer_businesses
+        lyr_bus.definitionQuery = f"CONAME LIKE '%{business_name.upper()}%'"
+        return lyr_bus
+
+    def get_business_competitor_layer(self, business_layer:[arcpy._mp.Layer, str]) -> arcpy._mp.Layer:
+        """
+        Get a layer of competitors from a existing business layer.
+        :param business_layer:
+        :return:
+        """
+        # get a list of NAICS codes in the original business layer to use for selecting businesses
+        naics_code_lst = set(r[0] for r in arcpy.da.SearchCursor(business_layer, 'NAICS'))
+        naics_sql = ' OR '.join(f"NAICS = '{naics}'" for naics in naics_code_lst)
+
+        # get a list of existing business ids and use for exclusion
+        existing_locnum_lst = [r[0] for r in arcpy.da.SearchCursor(business_layer, 'LOCNUM')]
+        existing_sql = ' AND '.join([f"LOCNUM <> '{locnum}'" for locnum in existing_locnum_lst])
+
+        # combine the naics selection and locnum exclusion
+        sql = f"{naics_sql} AND ({existing_sql})"
+
+        # create the layer and apply the query
+        comp_lyr = ba_data.layer_businesses
+        comp_lyr.definitionQuery = sql
+
+        return comp_lyr
 
     def _get_data_collection_dir(self):
         """Helper function to retrieve location to find the ba_data collection files"""
