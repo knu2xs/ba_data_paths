@@ -12,6 +12,7 @@ setuptools.setup(
     author='Joel McCune',
     author_email='jmccune@esri.com',
     description='ArcGIS Pro Business Analyst data path utilities.',
+    license='Apache 2.0',
     long_description=long_description,
     long_description_content_type='text/markdown',
     url='https://github.com/knu2xs/ba_data_paths',
